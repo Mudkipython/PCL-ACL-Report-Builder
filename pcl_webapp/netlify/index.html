@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="api-base" content="https://YOUR-FASTAPI-DOMAIN" />
+    <title>PCL/ACL Report Builder</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Source+Serif+4:wght@400;600&family=Space+Grotesk:wght@400;600&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="style.css" />
+  </head>
+  <body>
+    <div class="page">
+      <header class="hero">
+        <div class="badge">PCL · ACL Automation</div>
+        <h1>Upload Excel + PDF, download the matched report.</h1>
+        <p>
+          The tool extracts segment PCL from the PDF, aligns the Excel PCL and ACL tables,
+          and produces a downloadable report format of your choice.
+        </p>
+      </header>
+
+      <main class="card">
+        <div class="alert hidden" id="error"></div>
+        <div class="alert info hidden" id="status">Processing...</div>
+        <form class="form" id="upload-form">
+          <label class="field">
+            <span>Shareholders Report PDF</span>
+            <input type="file" name="pdf_file" accept="application/pdf" required />
+          </label>
+          <label class="field">
+            <span>Quarter Excel Workbook</span>
+            <input type="file" name="excel_file" accept=".xlsx,.xls" required />
+          </label>
+          <label class="field">
+            <span>Download Format</span>
+            <select name="output_format">
+              <option value="combined_xlsx">Combined Excel (all sheets)</option>
+              <option value="crosscheck_xlsx">Cross-check Excel only</option>
+              <option value="csv_zip">CSV bundle (zip)</option>
+            </select>
+          </label>
+          <button type="submit">Generate Report</button>
+        </form>
+        <div class="notes">
+          <div>
+            <strong>Expected Excel sheets:</strong> 23 (Total PCL), 22 (ACL table).
+          </div>
+          <div>
+            <strong>PDF pages:</strong> 84-85 for segment PCL rows.
+          </div>
+        </div>
+      </main>
+    </div>
+    <script src="app.js"></script>
+  </body>
+</html>

@@ -1,0 +1,146 @@
+:root {
+  color-scheme: light;
+  --ink: #141326;
+  --muted: #555a74;
+  --accent: #ff7a4d;
+  --accent-dark: #d95f36;
+  --card: #ffffff;
+  --bg: #f4efe8;
+  --stroke: rgba(20, 19, 38, 0.08);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family: "Space Grotesk", "Helvetica Neue", Arial, sans-serif;
+  color: var(--ink);
+  background: radial-gradient(circle at top left, #fff1e1, transparent 60%),
+    radial-gradient(circle at 20% 20%, #ffe8d9, transparent 55%),
+    linear-gradient(120deg, #f6f0e8 0%, #f1efe9 60%, #e9efe9 100%);
+  min-height: 100vh;
+}
+
+.page {
+  max-width: 960px;
+  margin: 0 auto;
+  padding: 64px 24px 80px;
+}
+
+.hero {
+  display: grid;
+  gap: 16px;
+  margin-bottom: 36px;
+}
+
+.badge {
+  display: inline-flex;
+  padding: 6px 14px;
+  border-radius: 999px;
+  background: rgba(255, 122, 77, 0.12);
+  color: var(--accent-dark);
+  font-size: 13px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  font-weight: 600;
+  width: fit-content;
+}
+
+h1 {
+  font-family: "Source Serif 4", "Times New Roman", serif;
+  font-weight: 600;
+  font-size: clamp(28px, 4vw, 42px);
+  margin: 0;
+}
+
+p {
+  margin: 0;
+  color: var(--muted);
+  max-width: 720px;
+  line-height: 1.6;
+}
+
+.card {
+  background: var(--card);
+  border-radius: 20px;
+  padding: 32px;
+  box-shadow: 0 18px 45px rgba(20, 19, 38, 0.08);
+  border: 1px solid var(--stroke);
+}
+
+.form {
+  display: grid;
+  gap: 20px;
+}
+
+.field {
+  display: grid;
+  gap: 8px;
+  font-size: 14px;
+  color: var(--muted);
+}
+
+input[type="file"],
+select {
+  padding: 12px 14px;
+  border-radius: 12px;
+  border: 1px solid var(--stroke);
+  font-size: 14px;
+  color: var(--ink);
+  background: #fff;
+}
+
+button {
+  padding: 14px 18px;
+  border-radius: 12px;
+  border: none;
+  background: var(--accent);
+  color: #fff;
+  font-weight: 600;
+  font-size: 15px;
+  cursor: pointer;
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+button:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 12px 24px rgba(255, 122, 77, 0.3);
+}
+
+.alert {
+  background: rgba(217, 95, 54, 0.12);
+  color: #a5462c;
+  padding: 12px 16px;
+  border-radius: 12px;
+  font-size: 14px;
+  margin-bottom: 16px;
+}
+
+.alert.info {
+  background: rgba(20, 19, 38, 0.08);
+  color: var(--ink);
+}
+
+.hidden {
+  display: none;
+}
+
+.notes {
+  margin-top: 24px;
+  font-size: 13px;
+  color: var(--muted);
+  display: grid;
+  gap: 8px;
+}
+
+@media (max-width: 640px) {
+  .page {
+    padding: 48px 18px 64px;
+  }
+
+  .card {
+    padding: 24px;
+  }
+}
