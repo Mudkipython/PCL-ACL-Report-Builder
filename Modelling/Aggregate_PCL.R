@@ -1,8 +1,8 @@
-######################################################
+#######################################################
 # MGSC 661: PART 1 - INDUSTRY AGGREGATE (PURE MACRO)
 # Focus: External Variables Only (GDP, Unemp, Rates)
 # Mode: Interactive (Press Enter to see next plot)
-######################################################
+#######################################################
 
 # -------- 1. Setup --------
 if(!require(tidyverse)) install.packages("tidyverse")

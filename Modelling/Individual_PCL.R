@@ -1,4 +1,4 @@
-######################################################
+###################################################### 
 # MGSC 661: PART 2 - AUTOMATED PDF REPORT GENERATOR
 # Focus: Pure Macro Factors (No GILS)
 # Output: A comprehensive PDF with 2 pages per bank
