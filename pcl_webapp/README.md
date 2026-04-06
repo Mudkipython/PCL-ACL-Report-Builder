@@ -9,23 +9,15 @@ cd /Users/fredericzhang/Documents/Study/CapStone/Case_1/pcl_webapp
 python -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
-uvicorn app.main:app --reload
+streamlit run streamlit_app.py
 ```
 
-Open http://127.0.0.1:8000.
+Open the local URL shown by Streamlit, usually `http://localhost:8501`.
 
-## Netlify frontend + separate backend
-Netlify only hosts static assets, so deploy the frontend in `netlify/` and host the FastAPI backend elsewhere.
-
-1) Deploy the backend (Render/Fly/EC2). Ensure it is reachable over HTTPS.
-2) In `netlify/index.html`, set the `api-base` meta tag to your backend URL.
-3) In Netlify, set the publish directory to `netlify`.
-
-## Render backend deployment
-1) Push this repo to GitHub.
-2) In Render, create a new Web Service from the repo.
-3) Render will detect `render.yaml`. Deploy.
-4) Copy the backend URL (e.g. `https://pcl-acl-backend.onrender.com`) into `netlify/index.html` `api-base`.
+## What changed
+- The app now runs as a single Streamlit interface instead of a FastAPI backend plus static frontend.
+- Report generation still reuses the extraction logic in `app/processing.py`.
+- Output is downloaded directly from the Streamlit UI.
 
 ## Output formats
 - Combined Excel: PCL_PDF, PCL_Excel, ACL_Excel, and PCL_Crosscheck sheets.
@@ -33,5 +25,5 @@ Netlify only hosts static assets, so deploy the frontend in `netlify/` and host 
 - CSV bundle: ZIP containing the three extracts plus cross-check.
 
 ## Notes
-- PDF PCL pages are currently fixed to pages 84-85 (adjustable in `app/processing.py`).
+- PDF PCL pages default to 84-85 and can be changed directly in the Streamlit UI.
 - Excel sheets expected: `23` for Total PCL, `22` for ACL.
