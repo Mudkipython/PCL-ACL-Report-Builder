@@ -1,6 +1,6 @@
 streamlit
 pandas
-numpy
+numpy<2
 scikit-learn
 statsmodels
 matplotlib
@@ -9,3 +9,6 @@ nbformat
 ipython
 ipywidgets
 openpyxl
+joblib
+pmdarima
+urllib3<2
