@@ -12,3 +12,7 @@ openpyxl
 joblib
 pmdarima
 urllib3<2
+pdfplumber
+pdfminer.six
+pillow
+pypdfium2
