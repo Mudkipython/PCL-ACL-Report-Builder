@@ -16,3 +16,7 @@ pdfplumber
 pdfminer.six
 pillow
 pypdfium2
+pdfplumber
+pdfminer.six
+pillow
+pypdfium2
