@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 import hashlib
+import io
 import json
 
 import pandas as pd
 import streamlit as st
 
 from forecast_engine import (
+    default_scenario_template,
     executive_summary,
     parse_uploaded_scenario,
     results_excel_bytes,
@@ -26,6 +28,13 @@ def _feature_table(feature_df: pd.DataFrame, quarter: str) -> pd.DataFrame:
     table = features.T.reset_index()
     table.columns = ["Driver", "Value"]
     return table
+
+
+def _scenario_excel_bytes(scenario_df: pd.DataFrame) -> bytes:
+    output = io.BytesIO()
+    with pd.ExcelWriter(output, engine="openpyxl") as writer:
+        scenario_df.to_excel(writer, index=False, sheet_name="Scenario Template")
+    return output.getvalue()
 
 
 def _render_individual_bundle(bundle: dict, key_prefix: str, title: str) -> None:
@@ -123,7 +132,8 @@ def _render_customer_model(bundle: dict, key_prefix: str, title: str, show_bloom
 st.title("UC2 Forecast Dashboard")
 st.write(
     "A customer-facing forecasting app built from the notebook workflow. "
-    "Users should work from the official template, upload the finished scenario file, and review the forecast report."
+    "Start from the official default scenario, edit values directly in the app or in Excel, "
+    "and then run the forecast report."
 )
 
 hero_left, hero_right = st.columns([1.2, 1])
@@ -131,8 +141,8 @@ with hero_left:
     st.markdown("**Recommended workflow**")
     st.markdown(
         "1. Download the official scenario template.\n"
-        "2. Update the macro assumptions in Excel.\n"
-        "3. Upload the completed file.\n"
+        "2. Update macro assumptions in the app or in Excel.\n"
+        "3. Optionally upload the official workbook or exported scenario template.\n"
         "4. Run the forecast report."
     )
 with hero_right:
@@ -156,36 +166,64 @@ with hero_right:
         "Unemployment Rate YoY QUARTER, Overnight Rate"
     )
 
-uploaded = st.file_uploader("Upload completed scenario template", type=["csv", "xlsx", "xls"])
+if "scenario_editor_version" not in st.session_state:
+    st.session_state["scenario_editor_version"] = 0
+if "working_scenario_df" not in st.session_state:
+    st.session_state["working_scenario_df"] = default_scenario_template()
+    st.session_state["scenario_source"] = "Official default scenario"
 
-if uploaded is None:
+def _load_working_scenario(dataframe: pd.DataFrame, source_label: str) -> None:
+    st.session_state["working_scenario_df"] = dataframe.copy()
+    st.session_state["scenario_source"] = source_label
+    st.session_state["scenario_editor_version"] += 1
     st.session_state.pop("forecast_results", None)
-    st.session_state.pop("uploaded_signature", None)
-    st.info("Upload a completed template file to generate the customer report.")
-    st.stop()
 
-uploaded_bytes = uploaded.getvalue()
-current_signature = (
-    uploaded.name,
-    uploaded.size,
-    hashlib.blake2b(uploaded_bytes, digest_size=16).hexdigest(),
+
+uploaded = st.file_uploader(
+    "Optional: upload the official scenario template or the full workbook",
+    type=["csv", "xlsx", "xls"],
 )
-if st.session_state.get("uploaded_signature") != current_signature:
-    st.session_state.pop("forecast_results", None)
-    st.session_state["uploaded_signature"] = current_signature
 
-try:
-    scenario_df = parse_uploaded_scenario(uploaded.name, uploaded_bytes)
-except Exception as exc:
-    st.error(f"File validation failed: {exc}")
-    st.stop()
+action_left, action_right = st.columns([1, 1.2])
+with action_left:
+    if st.button("Reset to Official Default Scenario", use_container_width=True):
+        _load_working_scenario(default_scenario_template(), "Official default scenario")
+with action_right:
+    st.download_button(
+        "Download Current Scenario as Excel",
+        data=_scenario_excel_bytes(st.session_state["working_scenario_df"]),
+        file_name="uc2_current_scenario.xlsx",
+        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        use_container_width=True,
+    )
 
-st.success(f"Loaded scenario file: {uploaded.name}")
+if uploaded is not None:
+    uploaded_bytes = uploaded.getvalue()
+    current_signature = (
+        uploaded.name,
+        uploaded.size,
+        hashlib.blake2b(uploaded_bytes, digest_size=16).hexdigest(),
+    )
+    if st.session_state.get("uploaded_signature") != current_signature:
+        st.session_state["uploaded_signature"] = current_signature
+        try:
+            loaded_df = parse_uploaded_scenario(uploaded.name, uploaded_bytes)
+        except Exception as exc:
+            st.error(f"Upload could not be parsed, keeping the current scenario instead: {exc}")
+        else:
+            _load_working_scenario(loaded_df, f"Uploaded file: {uploaded.name}")
+            st.success(f"Loaded scenario from {uploaded.name}")
+
+scenario_df = st.session_state["working_scenario_df"].copy()
+st.caption(
+    f"Scenario source: {st.session_state.get('scenario_source', 'Official default scenario')}. "
+    "You can keep historical actuals as-is and only update forward-looking forecast rows."
+)
 
 with st.expander("Scenario preview", expanded=False):
     st.dataframe(scenario_df, use_container_width=True, hide_index=True)
 
-with st.expander("Advanced: edit uploaded rows in-app", expanded=False):
+with st.expander("Edit Scenario in App", expanded=True):
     scenario_df = st.data_editor(
         scenario_df,
         use_container_width=True,
@@ -201,8 +239,9 @@ with st.expander("Advanced: edit uploaded rows in-app", expanded=False):
             ),
             "Overnight Rate": st.column_config.NumberColumn("Overnight Rate", format="%.2f"),
         },
-        key="scenario_editor",
+        key=f"scenario_editor_{st.session_state['scenario_editor_version']}",
     )
+st.session_state["working_scenario_df"] = scenario_df.copy()
 
 if st.button("Run Forecast Report", type="primary"):
     try:
@@ -216,6 +255,7 @@ if st.button("Run Forecast Report", type="primary"):
 
 results = st.session_state.get("forecast_results")
 if results is None:
+    st.info("Edit the default scenario or upload a workbook/template, then click Run Forecast Report.")
     st.stop()
 
 st.success("Forecast report completed.")
