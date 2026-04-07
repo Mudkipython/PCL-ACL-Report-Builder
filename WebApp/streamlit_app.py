@@ -1,20 +1,10 @@
 from __future__ import annotations
 
-import hashlib
-import json
-
+import matplotlib.pyplot as plt
 import pandas as pd
 import streamlit as st
 
-from forecast_engine import (
-    executive_summary,
-    parse_uploaded_scenario,
-    results_excel_bytes,
-    run_all_forecasts,
-    template_csv_bytes,
-    template_excel_bytes,
-    valid_banks,
-)
+from forecast_engine import default_scenario_template, executive_summary, run_all_forecasts, valid_banks
 
 
 st.set_page_config(page_title="UC2 Forecast Dashboard", layout="wide")
@@ -26,6 +16,45 @@ def _feature_table(feature_df: pd.DataFrame, quarter: str) -> pd.DataFrame:
     table = features.T.reset_index()
     table.columns = ["Driver", "Value"]
     return table
+
+
+def _forecast_plot(result_df: pd.DataFrame, show_bloomberg: bool = False):
+    fig, ax = plt.subplots(figsize=(10, 4.8))
+    x_labels = result_df["Quarter"].tolist()
+
+    if show_bloomberg and "Bloomberg Consensus" in result_df.columns:
+        ax.plot(x_labels, result_df["Bloomberg Consensus"], marker="o", linewidth=2, label="Bloomberg Consensus")
+        ax.plot(x_labels, result_df["ML Base"], marker="o", linewidth=2.4, label="Model Base")
+    else:
+        ax.plot(x_labels, result_df["ML Base"], marker="o", linewidth=2.4, label="Base Forecast")
+        if "TS Global Champion" in result_df.columns:
+            ax.plot(
+                x_labels,
+                result_df["TS Global Champion"],
+                marker="o",
+                linewidth=1.8,
+                linestyle="--",
+                label="TS Global Champion",
+            )
+
+    ax.plot(x_labels, result_df["Bear"], linewidth=1.8, linestyle="--", label="Bear")
+    ax.plot(x_labels, result_df["Bull"], linewidth=1.8, linestyle="--", label="Bull")
+    if "95% CI Lower" in result_df.columns and "95% CI Upper" in result_df.columns:
+        ax.fill_between(
+            x_labels,
+            result_df["95% CI Lower"].to_numpy(dtype=float),
+            result_df["95% CI Upper"].to_numpy(dtype=float),
+            alpha=0.15,
+            label="95% CI",
+        )
+
+    ax.set_xlabel("Quarter")
+    ax.set_ylabel("PCL")
+    ax.grid(alpha=0.25)
+    ax.legend(loc="best")
+    plt.xticks(rotation=45)
+    plt.tight_layout()
+    return fig
 
 
 def _render_individual_bundle(bundle: dict, key_prefix: str, title: str) -> None:
@@ -113,7 +142,8 @@ def _render_customer_model(bundle: dict, key_prefix: str, title: str, show_bloom
 
     left, right = st.columns([1.35, 0.9])
     with left:
-        st.line_chart(chart_df)
+        st.markdown("**Forecast Chart**")
+        st.pyplot(_forecast_plot(result_df, show_bloomberg=show_bloomberg), use_container_width=True)
         st.dataframe(result_df, use_container_width=True, hide_index=True)
     with right:
         st.markdown("**Forecast Drivers**")
@@ -122,70 +152,16 @@ def _render_customer_model(bundle: dict, key_prefix: str, title: str, show_bloom
 
 st.title("UC2 Forecast Dashboard")
 st.write(
-    "A customer-facing forecasting app built from the notebook workflow. "
-    "Users should work from the official template, upload the finished scenario file, and review the forecast report."
+    "Edit the scenario assumptions directly in the app and run the forecast report. "
+    "Results are shown immediately in the dashboard."
 )
 
-hero_left, hero_right = st.columns([1.2, 1])
-with hero_left:
-    st.markdown("**Recommended workflow**")
-    st.markdown(
-        "1. Download the official scenario template.\n"
-        "2. Update the macro assumptions in Excel.\n"
-        "3. Upload the completed file.\n"
-        "4. Run the forecast report."
-    )
-with hero_right:
-    dl1, dl2 = st.columns(2)
-    dl1.download_button(
-        "CSV Template",
-        data=template_csv_bytes(),
-        file_name="uc2_scenario_template.csv",
-        mime="text/csv",
-        use_container_width=True,
-    )
-    dl2.download_button(
-        "Excel Template",
-        data=template_excel_bytes(),
-        file_name="uc2_scenario_template.xlsx",
-        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        use_container_width=True,
-    )
-    st.caption(
-        "Expected columns: Bank, Year, Quarter, Bloomberg, GDP YoY Forecast, "
-        "Unemployment Rate YoY QUARTER, Overnight Rate"
-    )
+if "scenario_df" not in st.session_state:
+    st.session_state["scenario_df"] = default_scenario_template()
 
-uploaded = st.file_uploader("Upload completed scenario template", type=["csv", "xlsx", "xls"])
+scenario_df = st.session_state["scenario_df"].copy()
 
-if uploaded is None:
-    st.session_state.pop("forecast_results", None)
-    st.session_state.pop("uploaded_signature", None)
-    st.info("Upload a completed template file to generate the customer report.")
-    st.stop()
-
-uploaded_bytes = uploaded.getvalue()
-current_signature = (
-    uploaded.name,
-    uploaded.size,
-    hashlib.blake2b(uploaded_bytes, digest_size=16).hexdigest(),
-)
-if st.session_state.get("uploaded_signature") != current_signature:
-    st.session_state.pop("forecast_results", None)
-    st.session_state["uploaded_signature"] = current_signature
-
-try:
-    scenario_df = parse_uploaded_scenario(uploaded.name, uploaded_bytes)
-except Exception as exc:
-    st.error(f"File validation failed: {exc}")
-    st.stop()
-
-st.success(f"Loaded scenario file: {uploaded.name}")
-
-with st.expander("Scenario preview", expanded=False):
-    st.dataframe(scenario_df, use_container_width=True, hide_index=True)
-
-with st.expander("Advanced: edit uploaded rows in-app", expanded=False):
+with st.expander("Edit Scenario Inputs", expanded=True):
     scenario_df = st.data_editor(
         scenario_df,
         use_container_width=True,
@@ -204,6 +180,8 @@ with st.expander("Advanced: edit uploaded rows in-app", expanded=False):
         key="scenario_editor",
     )
 
+st.session_state["scenario_df"] = scenario_df.copy()
+
 if st.button("Run Forecast Report", type="primary"):
     try:
         with st.spinner("Running forecast models and loading cached assets..."):
@@ -211,36 +189,20 @@ if st.button("Run Forecast Report", type="primary"):
     except Exception as exc:
         st.error(f"Forecast failed: {exc}")
         st.stop()
-
     st.session_state["forecast_results"] = results
 
 results = st.session_state.get("forecast_results")
 if results is None:
+    st.info("Update the scenario table above and click Run Forecast Report.")
     st.stop()
 
 st.success("Forecast report completed.")
-
-report_col1, report_col2 = st.columns(2)
-report_col1.download_button(
-    "Download Excel Report",
-    data=results_excel_bytes(results),
-    file_name="uc2_forecast_report.xlsx",
-    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-    use_container_width=True,
-)
-report_col2.download_button(
-    "Download Technical JSON",
-    data=json.dumps(results["json_payload"], ensure_ascii=False, indent=2),
-    file_name="uc2_forecast_payload.json",
-    mime="application/json",
-    use_container_width=True,
-)
 
 st.subheader("Executive Summary")
 for line in executive_summary(results):
     st.write(f"- {line}")
 
-overview_tab, agg1_tab, agg2_tab, bbg_tab, ind_ns_tab, ind_sent_tab, tech_tab = st.tabs(
+overview_tab, agg1_tab, agg2_tab, bbg_tab, ind_ns_tab, ind_sent_tab = st.tabs(
     [
         "Overview",
         "Aggregate Model 1",
@@ -248,7 +210,6 @@ overview_tab, agg1_tab, agg2_tab, bbg_tab, ind_ns_tab, ind_sent_tab, tech_tab = 
         "Bloomberg Model",
         "Individual Model (No Sentiment)",
         "Individual Model (With Sentiment)",
-        "Technical",
     ]
 )
 
@@ -312,8 +273,3 @@ with ind_ns_tab:
     _render_individual_bundle(results["individual_no_sentiment"], "ind_ns", "Individual Model (No Sentiment)")
 with ind_sent_tab:
     _render_individual_bundle(results["individual_with_sentiment"], "ind_sent", "Individual Model (With Sentiment)")
-with tech_tab:
-    st.markdown("**Scenario Input**")
-    st.dataframe(results["scenario_df"], use_container_width=True, hide_index=True)
-    with st.expander("Technical JSON", expanded=False):
-        st.json(results["json_payload"])
