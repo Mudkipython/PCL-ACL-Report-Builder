@@ -122,9 +122,11 @@ def valid_banks() -> tuple[str, ...]:
 def _clean_scenario_df(df: pd.DataFrame) -> pd.DataFrame:
     incoming = list(df.columns)
     missing = [column for column in SCENARIO_COLUMNS if column not in incoming]
-    if missing:
-        extra = [column for column in incoming if column not in SCENARIO_COLUMNS]
-        problems = [f"missing columns: {', '.join(missing)}"]
+    extra = [column for column in incoming if column not in SCENARIO_COLUMNS]
+    if missing or extra:
+        problems = []
+        if missing:
+            problems.append(f"missing columns: {', '.join(missing)}")
         if extra:
             problems.append(f"unexpected columns: {', '.join(extra)}")
         raise ValueError("Scenario template mismatch: " + "; ".join(problems))
@@ -159,17 +161,6 @@ def _clean_scenario_df(df: pd.DataFrame) -> pd.DataFrame:
         raise ValueError(f"Duplicate bank-quarter rows found: {dup_str}")
 
     return scenario_df.sort_values(["Bank", "Year", "Quarter"]).reset_index(drop=True)
-
-
-def _try_parse_scenario_frame(df: pd.DataFrame) -> pd.DataFrame | None:
-    if df is None or df.empty:
-        return None
-    frame = df.copy()
-    frame.columns = [str(column).strip() for column in frame.columns]
-    try:
-        return _clean_scenario_df(frame)
-    except Exception:
-        return None
 
 
 def _load_sheet1() -> pd.DataFrame:
@@ -207,37 +198,12 @@ def parse_uploaded_scenario(upload_name: str, data: bytes) -> pd.DataFrame:
 
     if suffix == ".csv":
         uploaded = pd.read_csv(buffer)
-        return _clean_scenario_df(uploaded)
-    if suffix not in {".xlsx", ".xls"}:
+    elif suffix in {".xlsx", ".xls"}:
+        uploaded = pd.read_excel(buffer)
+    else:
         raise ValueError("Only CSV and Excel files are supported.")
 
-    workbook = pd.ExcelFile(buffer)
-    preferred_sheets = ["Scenario Template", "Sheet1"]
-    candidate_sheets = preferred_sheets + [sheet for sheet in workbook.sheet_names if sheet not in preferred_sheets]
-
-    for sheet_name in candidate_sheets:
-        for header_row in (0, 1, 2):
-            try:
-                uploaded = workbook.parse(sheet_name=sheet_name, header=header_row)
-            except Exception:
-                continue
-            parsed = _try_parse_scenario_frame(uploaded)
-            if parsed is not None:
-                return parsed
-
-    if "Sheet1" in workbook.sheet_names:
-        try:
-            uploaded = workbook.parse(sheet_name="Sheet1")
-            parsed = _try_parse_scenario_frame(uploaded)
-            if parsed is not None:
-                return parsed
-        except Exception:
-            pass
-
-    raise ValueError(
-        "Could not find a valid scenario sheet. Use the built-in default scenario, "
-        "upload the exported scenario template, or upload the full workbook with a Sheet1 scenario tab."
-    )
+    return _clean_scenario_df(uploaded)
 
 
 def _forecast_sentiment(history: pd.Series, steps: int) -> np.ndarray:

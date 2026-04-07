@@ -1,14 +1,12 @@
 from __future__ import annotations
 
 import hashlib
-import io
 import json
 
 import pandas as pd
 import streamlit as st
 
 from forecast_engine import (
-    default_scenario_template,
     executive_summary,
     parse_uploaded_scenario,
     results_excel_bytes,
@@ -28,116 +26,6 @@ def _feature_table(feature_df: pd.DataFrame, quarter: str) -> pd.DataFrame:
     table = features.T.reset_index()
     table.columns = ["Driver", "Value"]
     return table
-
-
-def _scenario_excel_bytes(scenario_df: pd.DataFrame) -> bytes:
-    output = io.BytesIO()
-    with pd.ExcelWriter(output, engine="openpyxl") as writer:
-        scenario_df.to_excel(writer, index=False, sheet_name="Scenario Template")
-    return output.getvalue()
-
-
-MACRO_COLUMNS = ["GDP YoY Forecast", "Unemployment Rate YoY QUARTER", "Overnight Rate"]
-
-
-def _quarter_macro_table(scenario_df: pd.DataFrame) -> pd.DataFrame:
-    ordered = scenario_df.sort_values(["Year", "Quarter", "Bank"]).copy()
-    quarter_table = (
-        ordered.groupby(["Year", "Quarter"], as_index=False)[MACRO_COLUMNS]
-        .first()
-        .sort_values(["Year", "Quarter"])
-        .reset_index(drop=True)
-    )
-    return quarter_table
-
-
-def _apply_quarter_macro_table(scenario_df: pd.DataFrame, quarter_table: pd.DataFrame) -> pd.DataFrame:
-    updated = scenario_df.drop(columns=MACRO_COLUMNS).merge(
-        quarter_table[["Year", "Quarter"] + MACRO_COLUMNS],
-        on=["Year", "Quarter"],
-        how="left",
-    )
-    ordered_columns = [
-        "Bank",
-        "Year",
-        "Quarter",
-        "Bloomberg",
-        "GDP YoY Forecast",
-        "Unemployment Rate YoY QUARTER",
-        "Overnight Rate",
-    ]
-    return updated[ordered_columns].sort_values(["Bank", "Year", "Quarter"]).reset_index(drop=True)
-
-
-def _macro_consistency_issues(scenario_df: pd.DataFrame) -> pd.DataFrame:
-    checks = (
-        scenario_df.groupby(["Year", "Quarter"], as_index=False)[MACRO_COLUMNS]
-        .nunique()
-        .sort_values(["Year", "Quarter"])
-        .reset_index(drop=True)
-    )
-    mask = (checks[MACRO_COLUMNS] > 1).any(axis=1)
-    return checks.loc[mask].reset_index(drop=True)
-
-
-def _render_overview_switch(results: dict, key_prefix: str) -> None:
-    view_mode = st.radio(
-        "Forecast view",
-        ["Total Forecasts", "Individual Bank Forecasts"],
-        horizontal=True,
-        key=f"{key_prefix}_view_mode",
-    )
-
-    if view_mode == "Total Forecasts":
-        latest_q = results["aggregate_model_1"]["result_df"]["Quarter"].iloc[-1]
-        st.markdown(f"**Latest quarter in scenario:** {latest_q}")
-
-        overview_cols = st.columns(3)
-        for column, key, label in zip(
-            overview_cols,
-            ["aggregate_model_1", "aggregate_model_2", "bloomberg_model"],
-            ["Aggregate Model 1", "Aggregate Model 2", "Bloomberg Model"],
-        ):
-            row = results[key]["result_df"].loc[results[key]["result_df"]["Quarter"] == latest_q].iloc[0]
-            with column:
-                st.markdown(f"**{label}**")
-                st.metric("Base", f"{row['ML Base']:,.1f}")
-                st.metric("Bear", f"{row['Bear']:,.1f}")
-                st.metric("Bull", f"{row['Bull']:,.1f}")
-
-        combined = pd.DataFrame(
-            {
-                "Quarter": results["aggregate_model_1"]["result_df"]["Quarter"],
-                "Aggregate Model 1": results["aggregate_model_1"]["result_df"]["ML Base"],
-                "Aggregate Model 2": results["aggregate_model_2"]["result_df"]["ML Base"],
-                "Bloomberg Model": results["bloomberg_model"]["result_df"]["ML Base"],
-            }
-        ).set_index("Quarter")
-        st.line_chart(combined)
-        return
-
-    variant_label = st.selectbox(
-        "Individual forecast family",
-        ["No Sentiment", "With Sentiment"],
-        key=f"{key_prefix}_variant",
-    )
-    variant_key = "individual_no_sentiment" if variant_label == "No Sentiment" else "individual_with_sentiment"
-    bundle = results[variant_key]
-    if not bundle["banks"]:
-        st.warning("No eligible banks were available for the selected individual model.")
-        return
-
-    latest_df = bundle["latest_quarter_summary_df"]
-    if not latest_df.empty:
-        st.markdown("**Latest Quarter Bank Comparison**")
-        st.bar_chart(latest_df.set_index("Bank")[["ML Base", "Bear", "Bull"]])
-        st.dataframe(latest_df, use_container_width=True, hide_index=True)
-
-    bank = st.selectbox("Bank", bundle["banks"], key=f"{key_prefix}_overview_bank")
-    bank_df = bundle["per_bank"][bank]["result_df"].set_index("Quarter")[["ML Base", "Bear", "Bull"]]
-    st.markdown(f"**{bank} Forecast Path**")
-    st.line_chart(bank_df)
-    st.dataframe(bundle["per_bank"][bank]["result_df"], use_container_width=True, hide_index=True)
 
 
 def _render_individual_bundle(bundle: dict, key_prefix: str, title: str) -> None:
@@ -235,8 +123,7 @@ def _render_customer_model(bundle: dict, key_prefix: str, title: str, show_bloom
 st.title("UC2 Forecast Dashboard")
 st.write(
     "A customer-facing forecasting app built from the notebook workflow. "
-    "Start from the official default scenario, edit values directly in the app or in Excel, "
-    "and then run the forecast report."
+    "Users should work from the official template, upload the finished scenario file, and review the forecast report."
 )
 
 hero_left, hero_right = st.columns([1.2, 1])
@@ -244,8 +131,8 @@ with hero_left:
     st.markdown("**Recommended workflow**")
     st.markdown(
         "1. Download the official scenario template.\n"
-        "2. Update macro assumptions in the app or in Excel.\n"
-        "3. Optionally upload the official workbook or exported scenario template.\n"
+        "2. Update the macro assumptions in Excel.\n"
+        "3. Upload the completed file.\n"
         "4. Run the forecast report."
     )
 with hero_right:
@@ -269,94 +156,36 @@ with hero_right:
         "Unemployment Rate YoY QUARTER, Overnight Rate"
     )
 
-if "scenario_editor_version" not in st.session_state:
-    st.session_state["scenario_editor_version"] = 0
-if "working_scenario_df" not in st.session_state:
-    st.session_state["working_scenario_df"] = default_scenario_template()
-    st.session_state["scenario_source"] = "Official default scenario"
+uploaded = st.file_uploader("Upload completed scenario template", type=["csv", "xlsx", "xls"])
 
-def _load_working_scenario(dataframe: pd.DataFrame, source_label: str) -> None:
-    st.session_state["working_scenario_df"] = dataframe.copy()
-    st.session_state["scenario_source"] = source_label
-    st.session_state["scenario_editor_version"] += 1
+if uploaded is None:
     st.session_state.pop("forecast_results", None)
+    st.session_state.pop("uploaded_signature", None)
+    st.info("Upload a completed template file to generate the customer report.")
+    st.stop()
 
-
-uploaded = st.file_uploader(
-    "Optional: upload the official scenario template or the full workbook",
-    type=["csv", "xlsx", "xls"],
+uploaded_bytes = uploaded.getvalue()
+current_signature = (
+    uploaded.name,
+    uploaded.size,
+    hashlib.blake2b(uploaded_bytes, digest_size=16).hexdigest(),
 )
+if st.session_state.get("uploaded_signature") != current_signature:
+    st.session_state.pop("forecast_results", None)
+    st.session_state["uploaded_signature"] = current_signature
 
-action_left, action_right = st.columns([1, 1.2])
-with action_left:
-    if st.button("Reset to Official Default Scenario", use_container_width=True):
-        _load_working_scenario(default_scenario_template(), "Official default scenario")
-with action_right:
-    st.download_button(
-        "Download Current Scenario as Excel",
-        data=_scenario_excel_bytes(st.session_state["working_scenario_df"]),
-        file_name="uc2_current_scenario.xlsx",
-        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        use_container_width=True,
-    )
+try:
+    scenario_df = parse_uploaded_scenario(uploaded.name, uploaded_bytes)
+except Exception as exc:
+    st.error(f"File validation failed: {exc}")
+    st.stop()
 
-if uploaded is not None:
-    uploaded_bytes = uploaded.getvalue()
-    current_signature = (
-        uploaded.name,
-        uploaded.size,
-        hashlib.blake2b(uploaded_bytes, digest_size=16).hexdigest(),
-    )
-    if st.session_state.get("uploaded_signature") != current_signature:
-        st.session_state["uploaded_signature"] = current_signature
-        try:
-            loaded_df = parse_uploaded_scenario(uploaded.name, uploaded_bytes)
-        except Exception as exc:
-            st.error(f"Upload could not be parsed, keeping the current scenario instead: {exc}")
-        else:
-            _load_working_scenario(loaded_df, f"Uploaded file: {uploaded.name}")
-            st.success(f"Loaded scenario from {uploaded.name}")
-
-scenario_df = st.session_state["working_scenario_df"].copy()
-st.caption(
-    f"Scenario source: {st.session_state.get('scenario_source', 'Official default scenario')}. "
-    "You can keep historical actuals as-is and only update forward-looking forecast rows."
-)
-
-consistency_issues = _macro_consistency_issues(scenario_df)
-if not consistency_issues.empty:
-    st.warning(
-        "Some quarters currently have different macro assumptions across banks. "
-        "Aggregate models use the quarter average, so use the quarter-level editor below to keep GDP, unemployment, "
-        "and rates aligned across all banks."
-    )
+st.success(f"Loaded scenario file: {uploaded.name}")
 
 with st.expander("Scenario preview", expanded=False):
     st.dataframe(scenario_df, use_container_width=True, hide_index=True)
 
-with st.expander("Edit Quarter-Level Macro Assumptions", expanded=True):
-    st.caption(
-        "Recommended. Edit each quarter once here and the values will be copied to every bank row for that quarter. "
-        "This is why GDP can appear different today: the detailed table lets each bank row carry its own copy."
-    )
-    quarter_macro_df = st.data_editor(
-        _quarter_macro_table(scenario_df),
-        use_container_width=True,
-        num_rows="fixed",
-        column_config={
-            "Year": st.column_config.NumberColumn("Year", step=1, format="%d"),
-            "Quarter": st.column_config.SelectboxColumn("Quarter", options=["Q1", "Q2", "Q3", "Q4"]),
-            "GDP YoY Forecast": st.column_config.NumberColumn("GDP YoY Forecast", format="%.2f"),
-            "Unemployment Rate YoY QUARTER": st.column_config.NumberColumn(
-                "Unemployment Rate YoY QUARTER", format="%.2f"
-            ),
-            "Overnight Rate": st.column_config.NumberColumn("Overnight Rate", format="%.2f"),
-        },
-        key=f"quarter_macro_editor_{st.session_state['scenario_editor_version']}",
-    )
-    scenario_df = _apply_quarter_macro_table(scenario_df, quarter_macro_df)
-
-with st.expander("Edit Detailed Bank-Level Scenario", expanded=False):
+with st.expander("Advanced: edit uploaded rows in-app", expanded=False):
     scenario_df = st.data_editor(
         scenario_df,
         use_container_width=True,
@@ -372,9 +201,8 @@ with st.expander("Edit Detailed Bank-Level Scenario", expanded=False):
             ),
             "Overnight Rate": st.column_config.NumberColumn("Overnight Rate", format="%.2f"),
         },
-        key=f"scenario_editor_{st.session_state['scenario_editor_version']}",
+        key="scenario_editor",
     )
-st.session_state["working_scenario_df"] = scenario_df.copy()
 
 if st.button("Run Forecast Report", type="primary"):
     try:
@@ -388,7 +216,6 @@ if st.button("Run Forecast Report", type="primary"):
 
 results = st.session_state.get("forecast_results")
 if results is None:
-    st.info("Edit the default scenario or upload a workbook/template, then click Run Forecast Report.")
     st.stop()
 
 st.success("Forecast report completed.")
@@ -426,7 +253,54 @@ overview_tab, agg1_tab, agg2_tab, bbg_tab, ind_ns_tab, ind_sent_tab, tech_tab = 
 )
 
 with overview_tab:
-    _render_overview_switch(results, "overview")
+    latest_q = results["aggregate_model_1"]["result_df"]["Quarter"].iloc[-1]
+    st.markdown(f"**Latest quarter in scenario:** {latest_q}")
+
+    overview_cols = st.columns(3)
+    for column, key, label in zip(
+        overview_cols,
+        ["aggregate_model_1", "aggregate_model_2", "bloomberg_model"],
+        ["Aggregate Model 1", "Aggregate Model 2", "Bloomberg Model"],
+    ):
+        row = results[key]["result_df"].loc[results[key]["result_df"]["Quarter"] == latest_q].iloc[0]
+        with column:
+            st.markdown(f"**{label}**")
+            st.metric("Base", f"{row['ML Base']:,.1f}")
+            st.metric("Bear", f"{row['Bear']:,.1f}")
+            st.metric("Bull", f"{row['Bull']:,.1f}")
+
+    combined = pd.DataFrame(
+        {
+            "Quarter": results["aggregate_model_1"]["result_df"]["Quarter"],
+            "Aggregate Model 1": results["aggregate_model_1"]["result_df"]["ML Base"],
+            "Aggregate Model 2": results["aggregate_model_2"]["result_df"]["ML Base"],
+            "Bloomberg Model": results["bloomberg_model"]["result_df"]["ML Base"],
+        }
+    ).set_index("Quarter")
+    st.line_chart(combined)
+
+    st.markdown("**Individual Bank Snapshot**")
+    ind_left, ind_right = st.columns(2)
+    with ind_left:
+        st.markdown("No Sentiment")
+        if not results["individual_no_sentiment"]["latest_quarter_summary_df"].empty:
+            st.dataframe(
+                results["individual_no_sentiment"]["latest_quarter_summary_df"],
+                use_container_width=True,
+                hide_index=True,
+            )
+        else:
+            st.write("No eligible banks.")
+    with ind_right:
+        st.markdown("With Sentiment")
+        if not results["individual_with_sentiment"]["latest_quarter_summary_df"].empty:
+            st.dataframe(
+                results["individual_with_sentiment"]["latest_quarter_summary_df"],
+                use_container_width=True,
+                hide_index=True,
+            )
+        else:
+            st.write("No eligible banks.")
 
 with agg1_tab:
     _render_customer_model(results["aggregate_model_1"], "agg_m1", "Aggregate Model 1")
